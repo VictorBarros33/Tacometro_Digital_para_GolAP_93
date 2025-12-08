@@ -1,0 +1,20 @@
+                    ┌─────────────────────────┐
+                    │ Bobina AP 93            │
+                    │ Terminal 1 (Negativo)   │
+                    └───────────┬─────────────┘
+                                │
+                        [R1 – 10k/20k]
+                                │
+                                ▼
+                        ┌────────────────┐
+                        │       PC817    │
+                        │ (Optoacoplador)│
+    Terra do Carro ---> │   Pin2  Pin1   │<--- R1
+                        │                │
+    Arduino GND --->    │   Pin3  Pin4   │----> Pulso isolado (D2)
+                        └────────────────┘
+                                │
+                        [R2 – 10k Pull-up]
+                                │
+                                ▼
+                            Arduino D2
