@@ -1,0 +1,171 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+// Configurações do Display OLED
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+#define SCREEN_ADDRESS 0x3C
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// Variáveis do tacômetro
+volatile unsigned long pulseCount = 0;
+unsigned long lastTime = 0;
+unsigned long currentRPM = 0;
+
+// Configurações do motor
+const int PULSES_PER_REVOLUTION = 2;  // Pulsos por volta do motor
+const int SENSOR_PIN = 2;              // Pino de interrupção (D2)
+const int UPDATE_INTERVAL = 500;       // Intervalo de atualização em ms
+
+// Variáveis para média móvel (suavização)
+const int NUM_READINGS = 3;
+unsigned long readings[NUM_READINGS];
+int readIndex = 0;
+unsigned long total = 0;
+
+void setup() {
+  Serial.begin(9600);
+  
+  // Inicializa array de leituras
+  for (int i = 0; i < NUM_READINGS; i++) {
+    readings[i] = 0;
+  }
+  
+  // Inicializa o display OLED
+  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(F("Falha ao inicializar SSD1306"));
+    for(;;); // Loop infinito se falhar
+  }
+  
+  // Tela de inicialização
+  displayStartupScreen();
+  
+  // Configura pino do sensor e interrupção
+  pinMode(SENSOR_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(SENSOR_PIN), countPulse, RISING);
+  
+  lastTime = millis();
+}
+
+void loop() {
+  unsigned long currentTime = millis();
+  
+  // Atualiza RPM a cada intervalo definido
+  if (currentTime - lastTime >= UPDATE_INTERVAL) {
+    calculateRPM(currentTime);
+    displayRPM();
+    lastTime = currentTime;
+  }
+}
+
+// Função de interrupção para contar pulsos
+void countPulse() {
+  pulseCount++;
+}
+
+// Calcula o RPM com média móvel para suavizar leitura
+void calculateRPM(unsigned long currentTime) {
+  noInterrupts();
+  unsigned long pulses = pulseCount;
+  pulseCount = 0;
+  interrupts();
+  
+  // Calcula RPM: (pulsos * 60000ms) / (intervalo * pulsos_por_volta)
+  // Simplificado: (pulsos * 120) / pulsos_por_volta para intervalo de 500ms
+  unsigned long rpm = (pulses * 60000UL) / (UPDATE_INTERVAL * PULSES_PER_REVOLUTION);
+  
+  // Aplica média móvel para suavizar
+  total = total - readings[readIndex];
+  readings[readIndex] = rpm;
+  total = total + readings[readIndex];
+  readIndex = (readIndex + 1) % NUM_READINGS;
+  
+  currentRPM = total / NUM_READINGS;
+  
+  // Envia para serial
+  Serial.print(F("RPM: "));
+  Serial.print(currentRPM);
+  Serial.print(F(" | Pulsos: "));
+  Serial.println(pulses);
+}
+
+// Exibe RPM no display OLED
+void displayRPM() {
+  display.clearDisplay();
+  
+  // Título
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println(F("TACOMETRO DIGITAL"));
+  
+  // Linha separadora
+  display.drawLine(0, 12, SCREEN_WIDTH, 12, SSD1306_WHITE);
+  
+  // Valor do RPM
+  display.setTextSize(3);
+  display.setCursor(10, 22);
+  
+  // Formata número com espaçamento adequado
+  if (currentRPM < 10) {
+    display.print(F("   "));
+  } else if (currentRPM < 100) {
+    display.print(F("  "));
+  } else if (currentRPM < 1000) {
+    display.print(F(" "));
+  }
+  display.print(currentRPM);
+  
+  // Unidade RPM
+  display.setTextSize(1);
+  display.setCursor(40, 54);
+  display.print(F("RPM"));
+  
+  // Indicador visual de rotação
+  drawRotationIndicator();
+  
+  display.display();
+}
+
+// Tela de inicialização
+void displayStartupScreen() {
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(5, 10);
+  display.println(F("CONTA-"));
+  display.setCursor(15, 30);
+  display.println(F("GIROS"));
+  
+  display.setTextSize(1);
+  display.setCursor(20, 52);
+  display.println(F("Versao 1.0"));
+  
+  display.display();
+  delay(2000);
+}
+
+// Desenha indicador visual de rotação
+void drawRotationIndicator() {
+  static int angle = 0;
+  
+  if (currentRPM > 0) {
+    int centerX = 110;
+    int centerY = 30;
+    int radius = 8;
+    
+    // Desenha círculo
+    display.drawCircle(centerX, centerY, radius, SSD1306_WHITE);
+    
+    // Desenha linha rotativa
+    int x = centerX + (radius - 2) * cos(angle * PI / 180);
+    int y = centerY + (radius - 2) * sin(angle * PI / 180);
+    display.drawLine(centerX, centerY, x, y, SSD1306_WHITE);
+    
+    // Incrementa ângulo proporcionalmente ao RPM
+    angle = (angle + map(currentRPM, 0, 3000, 5, 30)) % 360;
+  }
+}
